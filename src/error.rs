@@ -60,8 +60,13 @@ impl std::error::Error for Error {
     }
 }
 
-impl<S: Into<String>> From<S> for Error {
-    fn from(message: S) -> Self {
+impl From<&str> for Error {
+    fn from(message: &str) -> Self {
+        Error::new(message.to_string(), None)
+    }
+}
+impl From<String> for Error {
+    fn from(message: String) -> Self {
         Error::new(message, None)
     }
 }
