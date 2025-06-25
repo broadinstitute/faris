@@ -5,6 +5,7 @@ use crate::error::{Error, ResultWrapErr};
 #[derive(Deserialize)]
 pub(crate) struct Config {
     pub(crate) server: ServerConfig,
+    pub(crate) model: ModelConfig,
     pub(crate) lancedb: LanceDbConfig,
 }
 
@@ -16,6 +17,13 @@ pub(crate) struct ServerConfig {
 #[derive(Deserialize)]
 pub(crate) struct LanceDbConfig {
     pub(crate) db_file: String
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ModelConfig {
+    pub(crate) tokenizer_file: String,
+    pub(crate) config_file: String,
+    pub(crate) weights_file: String,
 }
 
 pub(crate) fn get_config() -> Result<Config, Error> {

@@ -36,6 +36,15 @@ impl Error {
             source: Some(Box::new(source)),
         }
     }
+    pub fn rewrap<S>(message: S, source: Box<dyn std::error::Error + 'static>) -> Self
+    where
+        S: Into<String>,
+    {
+        Error {
+            message: message.into(),
+            source: Some(source),
+        }
+    }
 }
 
 impl Debug for Error {
@@ -78,4 +87,10 @@ pub trait ResultWrapErr<T, E: std::error::Error + 'static> {
 impl<T, E: std::error::Error + 'static> ResultWrapErr<T, E> for Result<T, E> {
     fn wrap_err<S>(self, message: S) -> Result<T, Error>
     where S: Into<String> { self.map_err(|e| Error::wrap(message, e)) }
+}
+
+impl From<candle_core::Error> for Error {
+    fn from(e: candle_core::Error) -> Self {
+        Error::with_source("Candle core error", e)
+    }
 }
