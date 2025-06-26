@@ -1,0 +1,11 @@
+[server]
+port = 3000
+
+[model]
+tokenizer_file = "/home/oliverr/faris/model/tokenizer.json"
+config_file = "/home/oliverr/faris/model/config.json"
+weights_file = "/home/oliverr/faris/model/model.safetensors"
+
+[lancedb]
+db_file = "/home/oliverr/faris/lancedb/data"
+ 
