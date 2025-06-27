@@ -10,7 +10,7 @@ use candle_nn::VarBuilder;
 use candle_transformers::models::bert;
 use candle_transformers::models::bert::BertModel;
 use chrono::Local;
-use log::{LevelFilter, info};
+use log::{info, LevelFilter};
 use simplelog::{ColorChoice, TermLogger, TerminalMode};
 use std::fs;
 use std::fs::File;
@@ -18,9 +18,11 @@ use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
+use crate::embed::{calculate_embedding, get_bert_model, get_device, get_tokenizer};
 
 mod config;
 mod error;
+mod embed;
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -68,51 +70,21 @@ async fn ping() -> String {
 async fn get_embedding(
     State(app_state): State<AppState>, Path(term): Path<String>,
 ) -> Result<Json<Vec<f32>>, (StatusCode, String)> {
-    info!("Received request for embedding of term: {}", term);
+    info!("Received request for embedding of term: {term}");
     match calculate_embedding(&app_state, &term) {
         Ok(embedding) => Ok(Json(embedding)),
         Err(e) => {
-            info!("Error calculating embedding for term {}: {}", term, e);
+            info!("Error calculating embedding for term {term}: {e}");
             Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
     }
 }
 
-fn calculate_embedding(app_state: &AppState, term: &str) -> Result<Vec<f32>, Error> {
-    let encoding = app_state
-        .tokenizer
-        .encode(term, true)
-        .map_err(|e| Error::rewrap(format!("Error encoding term {}", term), e))?;
-    let ids = encoding.get_ids().to_vec();
-    let input = Tensor::new(&ids[..], &app_state.device)?.unsqueeze(0)?;
-    let seq_len = input.shape().dims()[1];
-    let token_type_ids = Tensor::zeros(&[1, seq_len], input.dtype(), input.device())?;
-    let output = app_state
-        .bert_model
-        .forward(&input, &token_type_ids, None)?;
-    let cls_embedding = output.get(0)?.get(0)?.to_vec1::<f32>()?;
-    Ok(cls_embedding)
-}
 
 fn init_app_state(config: &ModelConfig) -> Result<AppState, Error> {
-    let tokenizer = 
-        Arc::new(Tokenizer::from_file(&config.tokenizer_file).map_err(|e| {
-        Error::rewrap(
-            format!("Error loading tokenizer from file {}", config.tokenizer_file), e,
-        )
-    })?);
-    let bert_config: bert::Config = serde_json::from_reader(
-        File::open(&config.config_file)
-            .wrap_err(format!("Error opening {}", config.config_file))?,
-    )
-    .wrap_err(format!("Error parsing {}", config.config_file))?;
-    let device = Arc::new(Device::Cpu);
-    let dtype = DType::F32;
-    let weights = fs::read(&config.weights_file).wrap_err(format!(
-        "Error reading weights from {}",
-        config.weights_file
-    ))?;
-    let var_builder = VarBuilder::from_buffered_safetensors(weights, dtype, &device)?;
-    let bert_model = Arc::new(BertModel::load(var_builder, &bert_config)?);
+    let tokenizer = Arc::new(get_tokenizer(config)?);
+    let device = Arc::new(get_device()?);
+    let bert_model = Arc::new(get_bert_model(config, &device)?);
     Ok(AppState { tokenizer, device, bert_model, })
 }
+
