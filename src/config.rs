@@ -16,7 +16,8 @@ pub(crate) struct ServerConfig {
 
 #[derive(Deserialize)]
 pub(crate) struct LanceDbConfig {
-    pub(crate) db_file: String
+    pub(crate) db_file: String,
+    pub(crate) table_name: String,
 }
 
 #[derive(Deserialize)]

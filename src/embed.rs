@@ -22,12 +22,19 @@ pub(crate) fn get_device() -> Result<Device, Error> {
     Ok(Device::Cpu)
 }
 
-pub(crate) fn get_bert_model(config: &ModelConfig, device: &Device) -> Result<BertModel, Error> {
+pub(crate) struct BertModelWrap {
+    pub bert_model: BertModel,
+    pub hidden_size: usize,
+}
+
+pub(crate) fn get_bert_model(config: &ModelConfig, device: &Device)
+    -> Result<BertModelWrap, Error> {
     let bert_config: bert::Config = serde_json::from_reader(
         File::open(&config.config_file)
             .wrap_err(format!("Error opening {}", config.config_file))?,
     )
     .wrap_err(format!("Error parsing {}", config.config_file))?;
+    let hidden_size = bert_config.hidden_size;
     let dtype = DType::F32;
     let weights = fs::read(&config.weights_file).wrap_err(format!(
         "Error reading weights from {}",
@@ -35,7 +42,8 @@ pub(crate) fn get_bert_model(config: &ModelConfig, device: &Device) -> Result<Be
     ))?;
     let var_builder = VarBuilder::from_buffered_safetensors(weights, dtype, device)?;
     let bert_model = BertModel::load(var_builder, &bert_config)?;
-    Ok(bert_model)
+    let bert_model_wrap = BertModelWrap { bert_model, hidden_size };
+    Ok(bert_model_wrap)
 }
 
 pub(crate) fn calculate_embedding(app_state: &AppState, term: &str) -> Result<Vec<f32>, Error> {
