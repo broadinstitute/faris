@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use lancedb::arrow::arrow_schema::ArrowError;
 
 pub struct Error {
     pub message: String,
@@ -92,5 +93,11 @@ impl<T, E: std::error::Error + 'static> ResultWrapErr<T, E> for Result<T, E> {
 impl From<candle_core::Error> for Error {
     fn from(e: candle_core::Error) -> Self {
         Error::with_source("Candle core error", e)
+    }
+}
+
+impl From<ArrowError> for Error {
+    fn from(arrow_error: ArrowError) -> Self {
+        Error::with_source("Arrow error", arrow_error)
     }
 }

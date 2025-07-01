@@ -27,3 +27,4 @@ serde_json = "1.0.140"
 lzma-sys = { version = "0.1.20", features = ["static"] }
 lancedb = "0.21.0"
 arrow-array = "55.2.0"
+futures = "0.3.31"

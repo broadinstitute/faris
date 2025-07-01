@@ -2243,6 +2243,7 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "chrono",
+ "futures",
  "home",
  "lancedb",
  "log",
