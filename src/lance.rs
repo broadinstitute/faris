@@ -1,13 +1,11 @@
-use crate::AppState;
 use crate::config::LanceDbConfig;
 use crate::error::{Error, ResultWrapErr};
-use arrow_array::cast::AsArray;
+use crate::AppState;
 use arrow_array::{Array, ArrayRef, FixedSizeListArray, Float32Array, RecordBatch, RecordBatchIterator, StringArray};
 use futures::StreamExt;
-use lancedb::arrow::IntoArrowStream;
-use lancedb::arrow::arrow_schema::{DataType, Field, FieldRef, Schema};
+use lancedb::arrow::arrow_schema::{DataType, Field, Schema};
 use lancedb::query::{ExecutableQuery, QueryBase};
-use lancedb::{Connection, connect};
+use lancedb::{connect, Connection};
 use std::sync::Arc;
 
 pub(crate) async fn get_connection(
@@ -102,28 +100,13 @@ async fn get(
         .wrap_err(format!("Could not open table {table_name}"))?;
     let mut results = table
         .query()
-        .only_if(format!("term = '{}'", term))
+        .only_if(format!("term = '{term}'"))
         .execute()
         .await
         .wrap_err(format!("Could not query table {table_name}"))?;
     if let Some(record_batch) = results.next().await {
         let record_batch =
             record_batch.wrap_err(format!("Failed to retrieve record batch for term '{term}'"))?;
-        let term = record_batch
-            .column_by_name("term")
-            .ok_or_else(|| Error::from(format!("No term column in results for term '{term}'")))?
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                Error::from(format!(
-                    "Term column is not a StringArray for term '{term}'"
-                ))
-            })?
-            .iter()
-            .next()
-            .unwrap()
-            .unwrap()
-            .to_string();
         let embedding_column = record_batch
             .column_by_name("embedding")
             .ok_or_else(|| {
@@ -148,5 +131,15 @@ async fn get(
         Ok(Some(embedding_column))
     } else {
         Ok(None)
+    }
+}
+
+async fn add_if_not_exists(
+    connection: &Connection, table_name: &str, term: &str, app_state: &AppState,
+) -> Result<Vec<f32>, Error> {
+    if let Some(embedding) = get(connection, table_name, term).await? {
+        Ok(embedding)
+    } else {
+        add(connection, table_name, term, app_state).await
     }
 }
