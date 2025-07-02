@@ -60,9 +60,7 @@ async fn create_table(
     Ok(())
 }
 
-async fn add(
-    connection: &Connection, table_name: &str, term: &str, app_state: &AppState,
-) -> Result<Vec<f32>, Error> {
+async fn add(app_state: &AppState, term: &str) -> Result<Vec<f32>, Error> {
     let embedding = crate::embed::calculate_embedding(app_state, term)
         .wrap_err(format!("Failed to calculate embedding for term '{term}'"))?;
     let dim = embedding.len();
@@ -75,35 +73,35 @@ async fn add(
         ("term", terms),
         ("embedding", embeddings),
     ])?;
-    let table = connection
-        .open_table(table_name)
+    let table = app_state.lance_connection
+        .open_table(&app_state.table_name)
         .execute()
         .await
-        .wrap_err(format!("Could not open table {table_name}"))?;
+        .wrap_err(format!("Could not open table {}", app_state.table_name))?;
     let schema = batch.schema();
     let iter = vec![Ok(batch)].into_iter();
     let batch_reader = RecordBatchIterator::new(iter, schema);
     table.add(batch_reader)
         .execute()
         .await
-        .wrap_err(format!("Failed to add record to table {table_name}"))?;
+        .wrap_err(format!("Failed to add record to table {}", app_state.table_name))?;
     Ok(embedding)
 }
 
 async fn get(
-    connection: &Connection, table_name: &str, term: &str,
+    app_state: &AppState, term: &str,
 ) -> Result<Option<Vec<f32>>, Error> {
-    let table = connection
-        .open_table(table_name)
+    let table = &app_state.lance_connection
+        .open_table(&app_state.table_name)
         .execute()
         .await
-        .wrap_err(format!("Could not open table {table_name}"))?;
+        .wrap_err(format!("Could not open table {}", app_state.table_name))?;
     let mut results = table
         .query()
         .only_if(format!("term = '{term}'"))
         .execute()
         .await
-        .wrap_err(format!("Could not query table {table_name}"))?;
+        .wrap_err(format!("Could not query table {}", app_state.table_name))?;
     if let Some(record_batch) = results.next().await {
         let record_batch =
             record_batch.wrap_err(format!("Failed to retrieve record batch for term '{term}'"))?;
@@ -134,12 +132,10 @@ async fn get(
     }
 }
 
-async fn add_if_not_exists(
-    connection: &Connection, table_name: &str, term: &str, app_state: &AppState,
-) -> Result<Vec<f32>, Error> {
-    if let Some(embedding) = get(connection, table_name, term).await? {
+pub(crate) async fn add_if_not_exists(app_state: &AppState, term: &str) -> Result<Vec<f32>, Error> {
+    if let Some(embedding) = get(app_state, term).await? {
         Ok(embedding)
     } else {
-        add(connection, table_name, term, app_state).await
+        add(app_state, term).await
     }
 }

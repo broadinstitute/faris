@@ -29,6 +29,7 @@ pub(crate) struct AppState {
     bert_model: Arc<BertModel>,
     hidden_size: usize,
     lance_connection: Connection,
+    table_name: String,
 }
 
 pub fn run() -> Result<(), Error> {
@@ -47,6 +48,7 @@ pub fn run() -> Result<(), Error> {
         let router = Router::new()
             .route("/ping", get(ping))
             .route("/embedding/{term}", get(get_embedding))
+            .route("/add/{term}", get(add_term))
             .with_state(app_state);
         let listener = TcpListener::bind(endpoint)
             .await
@@ -80,14 +82,18 @@ async fn get_embedding(
     }
 }
 
-async fn put_term(
+async fn add_term(
     State(app_state): State<AppState>, Path(term): Path<String>,
 ) -> Result<Json<Vec<f32>>, (StatusCode, String)> {
-    info!("Received request to put: {term}");
-    match calculate_embedding(&app_state, &term) {
-        Ok(embedding) => Ok(Json(embedding)),
+    info!("Received request to add: {term}");
+    match lance::add_if_not_exists(&app_state, &term).await {
+        Ok(embedding) => {
+            info!("Successfully added term {term} with embedding: [{}, {}, {} ...]",
+                embedding[0], embedding[1], embedding[2]);
+            Ok(Json(embedding))
+        }
         Err(e) => {
-            info!("Error calculating embedding for term {term}: {e}");
+            info!("Error adding term {term}: {e}");
             Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
     }
@@ -101,6 +107,7 @@ async fn init_app_state(config: &Config) -> Result<AppState, Error> {
     let BertModelWrap { bert_model, hidden_size } = bert_model_wrap;
     let bert_model = Arc::new(bert_model);
     let lance_connection = lance::get_connection(&config.lancedb, hidden_size).await?;
-    Ok(AppState { tokenizer, device, bert_model, hidden_size, lance_connection })
+    let table_name = config.lancedb.table_name.clone();
+    Ok(AppState { tokenizer, device, bert_model, hidden_size, lance_connection, table_name })
 }
 
