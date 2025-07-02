@@ -101,3 +101,9 @@ impl From<ArrowError> for Error {
         Error::with_source("Arrow error", arrow_error)
     }
 }
+
+impl From<lancedb::Error> for Error {
+    fn from(lancedb_error: lancedb::Error) -> Self {
+        Error::with_source("LanceDB error", lancedb_error)
+    }
+}

@@ -27,7 +27,6 @@ pub(crate) struct AppState {
     tokenizer: Arc<Tokenizer>,
     device: Arc<Device>,
     bert_model: Arc<BertModel>,
-    hidden_size: usize,
     lance_connection: Connection,
     table_name: String,
 }
@@ -49,6 +48,7 @@ pub fn run() -> Result<(), Error> {
             .route("/ping", get(ping))
             .route("/embedding/{term}", get(get_embedding))
             .route("/add/{term}", get(add_term))
+            .route("/nearest/{term}", get(find_nearest))
             .with_state(app_state);
         let listener = TcpListener::bind(endpoint)
             .await
@@ -99,6 +99,19 @@ async fn add_term(
     }
 }
 
+async fn find_nearest(
+    State(app_state): State<AppState>, Path(term): Path<String>,
+) -> Result<Json<Vec<lance::NearTerm>>, (StatusCode, String)> {
+    info!("Received request to find nearest terms to: {term}");
+    match lance::find_nearest_to(&app_state, &term, 10).await {
+        Ok(terms) => Ok(Json(terms)),
+        Err(e) => {
+            info!("Error finding nearest terms to {term}: {e}");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        }
+    }
+}
+
 async fn init_app_state(config: &Config) -> Result<AppState, Error> {
     let model_config = &config.model;
     let tokenizer = Arc::new(get_tokenizer(model_config)?);
@@ -108,6 +121,6 @@ async fn init_app_state(config: &Config) -> Result<AppState, Error> {
     let bert_model = Arc::new(bert_model);
     let lance_connection = lance::get_connection(&config.lancedb, hidden_size).await?;
     let table_name = config.lancedb.table_name.clone();
-    Ok(AppState { tokenizer, device, bert_model, hidden_size, lance_connection, table_name })
+    Ok(AppState { tokenizer, device, bert_model, lance_connection, table_name })
 }
 

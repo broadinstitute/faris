@@ -1,12 +1,15 @@
 use crate::config::LanceDbConfig;
 use crate::error::{Error, ResultWrapErr};
-use crate::AppState;
+use crate::{embed, AppState};
 use arrow_array::{Array, ArrayRef, FixedSizeListArray, Float32Array, RecordBatch, RecordBatchIterator, StringArray};
 use futures::StreamExt;
 use lancedb::arrow::arrow_schema::{DataType, Field, Schema};
 use lancedb::query::{ExecutableQuery, QueryBase};
 use lancedb::{connect, Connection};
+use serde::Serialize;
 use std::sync::Arc;
+use lancedb::index::Index;
+use log::{info, warn};
 
 pub(crate) async fn get_connection(
     config: &LanceDbConfig, hidden_size: usize,
@@ -35,6 +38,12 @@ async fn create_table_if_not_exists(
     if !table_names.iter().any(|name| name == table_name) {
         create_table(connection, table_name, hidden_size).await?
     }
+    let table = connection
+        .open_table(table_name)
+        .execute()
+        .await
+        .wrap_err(format!("Failed to open table {table_name}"))?;
+    try_creating_index(&table, "embedding").await?;
     Ok(())
 }
 
@@ -52,11 +61,25 @@ async fn create_table(
             false,
         ),
     ]));
-    connection
-        .create_empty_table(table_name, schema)
-        .execute()
-        .await
-        .wrap_err(format!("Failed to create table {table_name}"))?;
+    let table =
+        connection
+            .create_empty_table(table_name, schema)
+            .execute()
+            .await
+            .wrap_err(format!("Failed to create table {table_name}"))?;
+    try_creating_index(&table, "embedding").await?;
+    Ok(())
+}
+
+async fn try_creating_index(table: &lancedb::table::Table, index_name: &str) -> Result<(), Error> {
+    match table.create_index(&["embedding"], Index::Auto).execute().await {
+        Ok(_) => {
+            info!("Index '{index_name}' created successfully.");
+        }
+        Err(e) => {
+            warn!("Failed to create index '{index_name}': {e}");
+        }
+    }
     Ok(())
 }
 
@@ -138,4 +161,60 @@ pub(crate) async fn add_if_not_exists(app_state: &AppState, term: &str) -> Resul
     } else {
         add(app_state, term).await
     }
+}
+
+#[derive(Serialize)]
+pub(crate) struct NearTerm {
+    pub term: String,
+    pub distance: f32,
+}
+
+pub(crate) async fn find_nearest_to(app_state: &AppState, term: &str, k: usize)
+    -> Result<Vec<NearTerm>, Error> {
+    let table = &app_state.lance_connection
+        .open_table(&app_state.table_name)
+        .execute()
+        .await
+        .wrap_err(format!("Could not open table {}", app_state.table_name))?;
+    let embedding = embed::calculate_embedding(app_state, term)
+        .wrap_err(format!("Failed to calculate embedding for term '{term}'"))?;
+    let mut nearest_batch_stream =
+        table.query().nearest_to(embedding)?.limit(k).execute()
+        .await
+        .wrap_err(format!("Failed to find nearest neighbors for term '{term}'"))?;
+    let mut nearest_terms: Vec<NearTerm> = Vec::new();
+    while let Some(batch) = nearest_batch_stream.next().await {
+        let batch =
+            batch.wrap_err(
+                format!("Failed to retrieve batch for nearest neighbors of term '{term}'")
+            )?;
+        let terms_column = batch
+            .column_by_name("term")
+            .ok_or_else(|| Error::from(
+                format!("No term column in results for term '{term}'"))
+            )?;
+        let terms_array = terms_column.as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| Error::from(
+                format!("Term column is not a StringArray for term '{term}'"))
+            )?;
+        let distances_column = batch
+            .column_by_name("__distance__")
+            .ok_or_else(|| Error::from(
+                format!("No distance column in results for term '{term}'"))
+            )?;
+        let distances_array =
+            distances_column.as_any().downcast_ref::<Float32Array>().ok_or_else(||
+                Error::from(
+                    format!("Distance column is not a Float32Array for term '{term}'")
+                )
+            )?;
+        terms_array.iter().zip(distances_array.iter())
+            .for_each(|(opt, dist)| {
+                let term = opt.map(|s| s.to_string()).unwrap_or_default();
+                let distance = dist.unwrap_or(f32::NAN);
+                nearest_terms.push(NearTerm { term, distance });
+            });
+    }
+    nearest_terms.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
+    Ok(nearest_terms)
 }
