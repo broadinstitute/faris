@@ -13,11 +13,11 @@ license = "BSD-3-Clause"
 [dependencies]
 axum = "0.8.4"
 serde = { version = "1.0.219", features = ["derive"] }
-toml = "0.8.23"
+toml = "0.9.0"
 home = "0.5.11"
 log = "0.4.27"
 simplelog = "0.12.2"
-tokio = { version = "1.45.1", features = ["rt-multi-thread"] }
+tokio = { version = "1.46.1", features = ["rt-multi-thread"] }
 chrono = "0.4.41"
 candle-core = "0.9.1"
 candle-transformers = "0.9.1"
@@ -28,3 +28,5 @@ lzma-sys = { version = "0.1.20", features = ["static"] }
 lancedb = "0.21.0"
 arrow-array = "55.2.0"
 futures = "0.3.31"
+time = {  version = "0.3.41", features = ["local-offset"] }
+csv = "1.3.1"

@@ -1,19 +1,19 @@
-use candle_transformers::models::bert;
-use candle_transformers::models::bert::BertModel;
-use crate::AppState;
 use crate::config::ModelConfig;
 use crate::error::Error;
-use std::fs::File;
-use std::fs;
+use crate::error::ResultWrapErr;
+use crate::AppState;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::var_builder::VarBuilder;
+use candle_transformers::models::bert;
+use candle_transformers::models::bert::BertModel;
+use std::fs;
+use std::fs::File;
 use tokenizers::tokenizer::Tokenizer;
-use crate::error::ResultWrapErr;
 
 pub(crate) fn get_tokenizer(config: &ModelConfig) -> Result<Tokenizer, Error> {
     Tokenizer::from_file(&config.tokenizer_file).map_err(|e| {
         Error::rewrap(
-            format!("Error loading tokenizer from file {}", config.tokenizer_file), e,
+            format!("Error loading tokenizer from file {}", config.tokenizer_file), e
         )
     })
 }

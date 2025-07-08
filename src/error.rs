@@ -1,5 +1,5 @@
-use std::fmt::{Debug, Display, Formatter};
 use lancedb::arrow::arrow_schema::ArrowError;
+use std::fmt::{Debug, Display, Formatter};
 
 pub struct Error {
     pub message: String,

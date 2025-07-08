@@ -12,6 +12,7 @@ pub(crate) struct Config {
 #[derive(Deserialize)]
 pub(crate) struct ServerConfig {
     pub(crate) port: u16,
+    pub(crate) upload_dir: String,
 }
 
 #[derive(Deserialize)]

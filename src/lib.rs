@@ -15,12 +15,15 @@ use lancedb::Connection;
 use tokenizers::Tokenizer;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
+use tokio::sync::RwLock;
 use crate::embed::{calculate_embedding, get_bert_model, get_device, get_tokenizer, BertModelWrap};
+use crate::upload::UploadStats;
 
 mod config;
 mod error;
 mod embed;
 mod lance;
+mod upload;
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -29,6 +32,8 @@ pub(crate) struct AppState {
     bert_model: Arc<BertModel>,
     lance_connection: Connection,
     table_name: String,
+    upload_dir: String,
+    upload_stats: Arc<RwLock<UploadStats>>
 }
 
 pub fn run() -> Result<(), Error> {
@@ -49,6 +54,8 @@ pub fn run() -> Result<(), Error> {
             .route("/embedding/{term}", get(get_embedding))
             .route("/add/{term}", get(add_term))
             .route("/nearest/{term}", get(find_nearest))
+            .route("/upload/{file_name}", get(upload_file))
+            .route("/upload_stats", get(upload_stats))
             .with_state(app_state);
         let listener = TcpListener::bind(endpoint)
             .await
@@ -112,6 +119,30 @@ async fn find_nearest(
     }
 }
 
+async fn upload_file(
+    State(app_state): State<AppState>, Path(file_name): Path<String>,
+) -> Result<String, (StatusCode, String)> { 
+    info!("Received file upload request for: {file_name}");
+    let stats = app_state.upload_stats.clone();
+    match upload::upload_file(&app_state, file_name.clone(), stats).await {
+        Ok(response) => {
+            info!("Started uploading file {file_name} uploaded successfully");
+            Ok(response)
+        }
+        Err(e) => {
+            info!("Error uploading file {file_name}: {e}");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        }
+    }
+}
+
+async fn upload_stats(
+    State(app_state): State<AppState>,
+) -> String {
+    info!("Received request for upload stats");
+    app_state.upload_stats.read().await.to_string()
+}
+
 async fn init_app_state(config: &Config) -> Result<AppState, Error> {
     let model_config = &config.model;
     let tokenizer = Arc::new(get_tokenizer(model_config)?);
@@ -121,6 +152,10 @@ async fn init_app_state(config: &Config) -> Result<AppState, Error> {
     let bert_model = Arc::new(bert_model);
     let lance_connection = lance::get_connection(&config.lancedb, hidden_size).await?;
     let table_name = config.lancedb.table_name.clone();
-    Ok(AppState { tokenizer, device, bert_model, lance_connection, table_name })
+    let upload_dir = config.server.upload_dir.clone();
+    let upload_stats = Arc::new(RwLock::new(UploadStats::new()));
+    Ok(AppState {
+        tokenizer, device, bert_model, lance_connection, table_name, upload_dir, upload_stats
+    })
 }
 

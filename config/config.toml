@@ -1,5 +1,6 @@
 [server]
 port = 3000
+upload_dir = "/home/oliverr/faris/uploads"
 
 [model]
 tokenizer_file = "/home/oliverr/faris/model/tokenizer.json"
@@ -8,4 +9,4 @@ weights_file = "/home/oliverr/faris/model/model.safetensors"
 
 [lancedb]
 db_file = "/home/oliverr/faris/lancedb/data"
- 
+table_name = "terms"
