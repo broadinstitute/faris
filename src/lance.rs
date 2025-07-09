@@ -56,7 +56,7 @@ async fn create_table(
     let schema = Arc::new(Schema::new(vec![
         Field::new(TERM_COLUMN, DataType::Utf8, false),
         Field::new(
-            "EMBEDDING_COLUMN",
+            EMBEDDING_COLUMN,
             DataType::FixedSizeList(
                 Arc::new(Field::new("item", DataType::Float32, false)),
                 hidden_size as i32,
