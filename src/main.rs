@@ -1,6 +1,6 @@
 fn main() {
     match faris::run() {
-        Ok(_) => println!("Execution completed successfully."),
-        Err(e) => eprintln!("An error occurred: {e}"),
+        Ok(_) => println!("Server shut down without error."),
+        Err(e) => eprintln!("Server shut down with error: {e}"),
     }
 }

@@ -2,6 +2,7 @@ use std::fmt::Display;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use log::info;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
 use crate::error::{Error, ResultWrapErr};
@@ -10,7 +11,8 @@ use crate::{lance, AppState};
 pub(crate) struct UploadTaskStats {
     pub(crate) file_name: String,
     pub(crate) n_terms_uploaded: usize,
-    pub(crate) is_finished: bool,
+    pub(crate) upload_finished: bool,
+    pub(crate) indexing_finished: bool,
     pub(crate) error: Option<String>,
     pub(crate) timestamp: OffsetDateTime
 }
@@ -31,7 +33,8 @@ impl UploadTaskStats {
         Ok(UploadTaskStats {
             file_name,
             n_terms_uploaded: 0,
-            is_finished: false,
+            upload_finished: false,
+            indexing_finished: false,
             error: None,
             timestamp,
         })
@@ -39,9 +42,10 @@ impl UploadTaskStats {
     pub(crate) fn update_n_terms_uploaded(&mut self, n: usize) {
         self.n_terms_uploaded = n;
     }
-    pub(crate) fn mark_finished(&mut self) {
-        self.is_finished = true;
+    pub(crate) fn mark_upload_finished(&mut self) {
+        self.upload_finished = true;
     }
+    pub(crate) fn mark_indexing_finished(&mut self) { self.indexing_finished = true; }
     pub(crate) fn mark_error(&mut self, error: String) {
         self.error = Some(error);
     }
@@ -57,7 +61,7 @@ impl UploadStats {
         self.tasks.push(UploadTaskStats::new(file_name)?);
         Ok(handle)
     }
-    pub(crate) fn update_task<F>(&mut self, handle: &TaskStatHandle, mutator: F)
+    pub(crate) fn update_task<F>(&mut self, handle: TaskStatHandle, mutator: F)
         -> Result<(), Error> where F: Fn(&mut UploadTaskStats) {
         if let Some(task) = self.tasks.get_mut(handle.i) {
             mutator(task);
@@ -71,8 +75,10 @@ impl UploadStats {
 impl Display for UploadTaskStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "As of {}, uploading {}", self.timestamp, self.file_name)?;
-        if self.is_finished {
-            write!(f, " is finished and")?;
+        if self.upload_finished && self.indexing_finished {
+            write!(f, " is finished uploading and indexing and")?;
+        } else if self.upload_finished {
+            write!(f, " is finished uploading but still indexing and")?;
         } else {
             write!(f, " is in progress and so far")?;
         }
@@ -113,14 +119,13 @@ pub(crate) async fn upload_file(app_state: &AppState, file_name: String,
 async fn upload_spawned(app_state: AppState, file_name: String,
                         stats: Arc<RwLock<UploadStats>>, handle: TaskStatHandle) {
     let file_path = Path::new(&app_state.upload_dir).join(&file_name);
-    let upload_result = try_upload(app_state, file_path, stats.clone(), handle).await;
+    let upload_result =
+        try_upload(app_state, file_path, stats.clone(), handle).await;
     if let Err(error) = upload_result {
         let error = error.to_string();
-        stats.write().await.update_task(&handle, |task| {
-            task.mark_error(error.clone());
-        }).unwrap_or_else(|e| {
-            eprintln!("Failed to update upload stats: {}", e);
-        });
+        update_stats(&stats, handle, |task| {
+            task.mark_error(error.clone()) }
+        ).await;
     }
 }
 
@@ -130,11 +135,40 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
     let file = std::fs::File::open(&file_path)
         .wrap_err(format!("Failed to open file {}", file_path.display()))?;
     let mut reader = csv::Reader::from_reader(BufReader::new(file));
-    for (i, record) in reader.records().enumerate() {
+    info!("Starting to upload terms from file: {}", file_path.display());
+    let mut n_terms: usize = 0;
+    let mut n_terms_last_reported: usize = 0;
+    for record in reader.records() {
         let record = record.wrap_err("Failed to read CSV record")?;
         if let Some(term) = record.get(0) {
-            lance::add_if_not_exists(&app_state, term).await?;
+            if lance::add_if_not_exists(&app_state, term).await?.was_added {
+                n_terms += 1;
+            }
+        }
+        if n_terms > n_terms_last_reported + n_terms_last_reported / 100 {
+            update_stats(&stats, handle, |task| {
+                task.update_n_terms_uploaded(n_terms);
+            }).await;
+            n_terms_last_reported = n_terms;
         }
     }
+    update_stats(&stats, handle, |task| {
+        task.update_n_terms_uploaded(n_terms);
+        task.mark_upload_finished();
+    }).await;
+    info!("Finished uploading terms from file: {}. Now indexing.", file_path.display());
+    let table = app_state.lance_connection.open_table(app_state.table_name).execute().await?;
+    lance::try_creating_index(&table).await?;
+    update_stats(&stats, handle, |task| {
+        task.mark_indexing_finished();
+    }).await;
     Ok(())
+}
+
+async fn update_stats<F>(stats: &Arc<RwLock<UploadStats>>, handle: TaskStatHandle, mutator: F)
+where F: Fn(&mut UploadTaskStats) {
+    stats.write().await.update_task(handle, mutator)
+        .unwrap_or_else(|error| {
+            eprintln!("Failed to update upload stats: {error}");
+        });
 }

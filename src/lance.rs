@@ -11,6 +11,9 @@ use std::sync::Arc;
 use lancedb::index::Index;
 use log::{info, warn};
 
+pub(crate) const TERM_COLUMN: &str = "term";
+pub(crate) const EMBEDDING_COLUMN: &str = "embedding";
+
 pub(crate) async fn get_connection(
     config: &LanceDbConfig, hidden_size: usize,
 ) -> Result<Connection, Error> {
@@ -43,7 +46,7 @@ async fn create_table_if_not_exists(
         .execute()
         .await
         .wrap_err(format!("Failed to open table {table_name}"))?;
-    try_creating_index(&table, "embedding").await?;
+    try_creating_index(&table).await?;
     Ok(())
 }
 
@@ -51,9 +54,9 @@ async fn create_table(
     connection: &Connection, table_name: &str, hidden_size: usize,
 ) -> Result<(), Error> {
     let schema = Arc::new(Schema::new(vec![
-        Field::new("term", DataType::Utf8, false),
+        Field::new(TERM_COLUMN, DataType::Utf8, false),
         Field::new(
-            "embedding",
+            "EMBEDDING_COLUMN",
             DataType::FixedSizeList(
                 Arc::new(Field::new("item", DataType::Float32, false)),
                 hidden_size as i32,
@@ -67,17 +70,17 @@ async fn create_table(
             .execute()
             .await
             .wrap_err(format!("Failed to create table {table_name}"))?;
-    try_creating_index(&table, "embedding").await?;
+    try_creating_index(&table).await?;
     Ok(())
 }
 
-async fn try_creating_index(table: &lancedb::table::Table, index_name: &str) -> Result<(), Error> {
-    match table.create_index(&["embedding"], Index::Auto).execute().await {
+pub(crate) async fn try_creating_index(table: &lancedb::table::Table) -> Result<(), Error> {
+    match table.create_index(&[EMBEDDING_COLUMN], Index::Auto).execute().await {
         Ok(_) => {
-            info!("Index '{index_name}' created successfully.");
+            info!("Index created successfully.");
         }
         Err(e) => {
-            warn!("Failed to create index '{index_name}': {e}");
+            warn!("Failed to create index: {e}");
         }
     }
     Ok(())
@@ -119,9 +122,10 @@ async fn get(
         .execute()
         .await
         .wrap_err(format!("Could not open table {}", app_state.table_name))?;
+    let escaped_term = term.replace("'", "''");
     let mut results = table
         .query()
-        .only_if(format!("term = '{term}'"))
+        .only_if(format!("term = '{escaped_term}'"))
         .execute()
         .await
         .wrap_err(format!("Could not query table {}", app_state.table_name))?;
@@ -155,11 +159,19 @@ async fn get(
     }
 }
 
-pub(crate) async fn add_if_not_exists(app_state: &AppState, term: &str) -> Result<Vec<f32>, Error> {
+pub(crate) struct MaybeAdded {
+    pub(crate) embedding: Vec<f32>,
+    pub(crate) was_added: bool,
+}
+
+pub(crate) async fn add_if_not_exists(app_state: &AppState, term: &str)
+    -> Result<MaybeAdded, Error> {
     if let Some(embedding) = get(app_state, term).await? {
-        Ok(embedding)
+        Ok(MaybeAdded { embedding, was_added: false } )
     } else {
-        add(app_state, term).await
+        add(app_state, term).await.map(|embedding| {
+            MaybeAdded { embedding, was_added: true }
+        })
     }
 }
 

@@ -17,6 +17,7 @@ use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 use crate::embed::{calculate_embedding, get_bert_model, get_device, get_tokenizer, BertModelWrap};
+use crate::lance::MaybeAdded;
 use crate::upload::UploadStats;
 
 mod config;
@@ -94,9 +95,14 @@ async fn add_term(
 ) -> Result<Json<Vec<f32>>, (StatusCode, String)> {
     info!("Received request to add: {term}");
     match lance::add_if_not_exists(&app_state, &term).await {
-        Ok(embedding) => {
-            info!("Successfully added term {term} with embedding: [{}, {}, {} ...]",
+        Ok(MaybeAdded { embedding, was_added }) => {
+            if was_added {
+                info!("Added term '{term}' with embedding: [{}, {}, {} ...]",
                 embedding[0], embedding[1], embedding[2]);
+            } else {
+                info!("Term '{term}' already existed with embedding: [{}, {}, {} ...]",
+                embedding[0], embedding[1], embedding[2]);
+            }
             Ok(Json(embedding))
         }
         Err(e) => {
