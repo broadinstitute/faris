@@ -14,7 +14,8 @@ pub(crate) struct UploadTaskStats {
     pub(crate) upload_finished: bool,
     pub(crate) indexing_finished: bool,
     pub(crate) error: Option<String>,
-    pub(crate) timestamp: OffsetDateTime
+    pub(crate) started: OffsetDateTime,
+    pub(crate) last_updated: OffsetDateTime,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -28,26 +29,41 @@ pub(crate) struct UploadStats {
 
 impl UploadTaskStats {
     pub(crate) fn new(file_name: String) -> Result<Self, Error> {
-        let timestamp = OffsetDateTime::now_local()
+        let started = OffsetDateTime::now_local()
             .wrap_err("Failed to get local time")?;
+        let last_updated = started;
         Ok(UploadTaskStats {
             file_name,
             n_terms_uploaded: 0,
             upload_finished: false,
             indexing_finished: false,
             error: None,
-            timestamp,
+            started,
+            last_updated,
         })
+    }
+    fn set_last_updated(&mut self) {
+        if let Ok(now) = OffsetDateTime::now_local() {
+            self.last_updated = now;
+        } else {
+            eprintln!("Failed to get local time for updating task stats");
+        }
     }
     pub(crate) fn update_n_terms_uploaded(&mut self, n: usize) {
         self.n_terms_uploaded = n;
+        self.set_last_updated();
     }
     pub(crate) fn mark_upload_finished(&mut self) {
         self.upload_finished = true;
+        self.set_last_updated();
     }
-    pub(crate) fn mark_indexing_finished(&mut self) { self.indexing_finished = true; }
+    pub(crate) fn mark_indexing_finished(&mut self) {
+        self.indexing_finished = true;
+        self.set_last_updated();
+    }
     pub(crate) fn mark_error(&mut self, error: String) {
         self.error = Some(error);
+        self.set_last_updated();
     }
 }
 
@@ -74,7 +90,8 @@ impl UploadStats {
 
 impl Display for UploadTaskStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "As of {}, uploading {}", self.timestamp, self.file_name)?;
+        write!(f, "Started at {}, as of {}, uploading {}", self.started, self.last_updated,
+            self.file_name)?;
         if self.upload_finished && self.indexing_finished {
             write!(f, " is finished uploading and indexing and")?;
         } else if self.upload_finished {
