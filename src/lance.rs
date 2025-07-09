@@ -210,7 +210,7 @@ pub(crate) async fn find_nearest_to(app_state: &AppState, term: &str, k: usize)
                 format!("Term column is not a StringArray for term '{term}'"))
             )?;
         let distances_column = batch
-            .column_by_name("__distance__")
+            .column_by_name("_distance")
             .ok_or_else(|| Error::from(
                 format!("No distance column in results for term '{term}'"))
             )?;

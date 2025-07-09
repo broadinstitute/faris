@@ -116,7 +116,7 @@ async fn find_nearest(
     State(app_state): State<AppState>, Path(term): Path<String>,
 ) -> Result<Json<Vec<lance::NearTerm>>, (StatusCode, String)> {
     info!("Received request to find nearest terms to: {term}");
-    match lance::find_nearest_to(&app_state, &term, 10).await {
+    match lance::find_nearest_to(&app_state, &term, 1000).await {
         Ok(terms) => Ok(Json(terms)),
         Err(e) => {
             info!("Error finding nearest terms to {term}: {e}");
