@@ -129,9 +129,11 @@ pub(crate) async fn upload_file(app_state: &AppState, file_name: String,
     };
     let message = format!("Processing request to upload {file_name}");
     let app_state = app_state.clone();
-    tokio::spawn(async move {
-        upload_spawned(app_state, file_name, stats, task_handle).await
-    });
+    tokio::spawn( async {
+        tokio::task::spawn_blocking(move || {
+            upload_spawned(app_state, file_name, stats, task_handle)
+        }).await
+    }.await.wrap_err("Error spawning")?);
     Ok(message)
 }
 
