@@ -86,32 +86,43 @@ pub(crate) async fn try_creating_index(table: &lancedb::table::Table) -> Result<
     Ok(())
 }
 
-pub(crate) async fn add(app_state: &AppState, term: &str) -> Result<Vec<f32>, Error> {
-    let embedding = embed::calculate_embedding(app_state, term)
-        .wrap_err(format!("Failed to calculate embedding for term '{term}'"))?;
-    let dim = embedding.len();
-    let terms = Arc::new(StringArray::from(vec![term])) as ArrayRef;
-    let values = Arc::new(Float32Array::from(embedding.clone())) as ArrayRef;
-    let field = Arc::new(Field::new("item", DataType::Float32, false));
-    let embeddings = Arc::new(FixedSizeListArray::try_new(field, dim as i32, values, None)
-        .expect("Failed to build FixedSizeListArray")) as ArrayRef;
-    let batch = RecordBatch::try_from_iter(vec![
-        ("term", terms),
-        ("embedding", embeddings),
-    ])?;
-    let table = app_state.lance_connection
-        .open_table(&app_state.table_name)
-        .execute()
-        .await
-        .wrap_err(format!("Could not open table {}", app_state.table_name))?;
-    let schema = batch.schema();
-    let iter = vec![Ok(batch)].into_iter();
-    let batch_reader = RecordBatchIterator::new(iter, schema);
-    table.add(batch_reader)
-        .execute()
-        .await
-        .wrap_err(format!("Failed to add record to table {}", app_state.table_name))?;
-    Ok(embedding)
+pub(crate) async fn add(app_state: &AppState, terms: Vec<String>) -> Result<Vec<Vec<f32>>, Error> {
+    if terms.is_empty() {
+        Ok(Vec::new())
+    } else {
+        let embeddings: Vec<Vec<f32>> = terms.iter()
+            .map(|t| {
+                embed::calculate_embedding(app_state, t)
+                    .wrap_err(format!("Failed to calculate embedding for term '{t}'"))
+            }).collect::<Result<Vec<Vec<f32>>, Error>>()?;
+        let dim = embeddings[0].len() as i32;
+        let embeddings_flat: Vec<f32> = embeddings.iter()
+            .flat_map(|e| e.iter().cloned())
+            .collect();
+        let terms_ref = Arc::new(StringArray::from(terms)) as ArrayRef;
+        let values = Arc::new(Float32Array::from(embeddings_flat)) as ArrayRef;
+        let field = Arc::new(Field::new("item", DataType::Float32, false));
+        let embeddings_flat_ref =
+            Arc::new(FixedSizeListArray::try_new(field, dim, values, None)
+            .expect("Failed to build FixedSizeListArray")) as ArrayRef;
+        let batch = RecordBatch::try_from_iter(vec![
+            ("term", terms_ref),
+            ("embedding", embeddings_flat_ref),
+        ])?;
+        let table = app_state.lance_connection
+            .open_table(&app_state.table_name)
+            .execute()
+            .await
+            .wrap_err(format!("Could not open table {}", app_state.table_name))?;
+        let schema = batch.schema();
+        let iter = vec![Ok(batch)].into_iter();
+        let batch_reader = RecordBatchIterator::new(iter, schema);
+        table.add(batch_reader)
+            .execute()
+            .await
+            .wrap_err(format!("Failed to add record to table {}", app_state.table_name))?;
+        Ok(embeddings)
+    }
 }
 
 async fn get(
@@ -169,7 +180,10 @@ pub(crate) async fn add_if_not_exists(app_state: &AppState, term: &str)
     if let Some(embedding) = get(app_state, term).await? {
         Ok(MaybeAdded { embedding, was_added: false } )
     } else {
-        add(app_state, term).await.map(|embedding| {
+        let terms = vec![term.to_string()];
+        add(app_state, terms).await.map(|embeddings| {
+            let embedding = embeddings.into_iter().next()
+                .expect("Expected at least one embedding after adding term");
             MaybeAdded { embedding, was_added: true }
         })
     }

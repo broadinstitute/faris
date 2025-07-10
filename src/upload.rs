@@ -2,6 +2,7 @@ use std::fmt::Display;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use lancedb::table::OptimizeAction;
 use log::info;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
@@ -155,19 +156,26 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
     let mut reader = csv::Reader::from_reader(BufReader::new(file));
     info!("Starting to upload terms from file: {}", file_path.display());
     let mut n_terms: usize = 0;
-    let mut n_terms_last_reported: usize = 0;
+    let mut term_batch: Vec<String> = Vec::new();
     for record in reader.records() {
         let record = record.wrap_err("Failed to read CSV record")?;
         if let Some(term) = record.get(0) {
-            lance::add(&app_state, term).await?;
+            term_batch.push(term.to_string());
             n_terms += 1;
         }
-        if n_terms > n_terms_last_reported + n_terms_last_reported / 100 {
+        const BATCH_SIZE: usize = 1000;
+        if term_batch.len() >= BATCH_SIZE {
+            lance::add(&app_state, term_batch.clone()).await?;
+            info!("Uploaded {n_terms} terms");
+            term_batch.clear();
             update_stats(&stats, handle, |task| {
                 task.update_n_terms_uploaded(n_terms);
             }).await;
-            n_terms_last_reported = n_terms;
         }
+    }
+    if !term_batch.is_empty() {
+        lance::add(&app_state, term_batch).await?;
+        info!("Uploaded {n_terms} terms");
     }
     update_stats(&stats, handle, |task| {
         task.update_n_terms_uploaded(n_terms);
@@ -175,7 +183,7 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
     }).await;
     info!("Finished uploading terms from file: {}. Now indexing.", file_path.display());
     let table = app_state.lance_connection.open_table(app_state.table_name).execute().await?;
-    lance::try_creating_index(&table).await?;
+    table.optimize(OptimizeAction::All).await?;
     update_stats(&stats, handle, |task| {
         task.mark_indexing_finished();
     }).await;
