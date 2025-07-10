@@ -159,9 +159,8 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
     for record in reader.records() {
         let record = record.wrap_err("Failed to read CSV record")?;
         if let Some(term) = record.get(0) {
-            if lance::add_if_not_exists(&app_state, term).await?.was_added {
-                n_terms += 1;
-            }
+            lance::add(&app_state, term).await?;
+            n_terms += 1;
         }
         if n_terms > n_terms_last_reported + n_terms_last_reported / 100 {
             update_stats(&stats, handle, |task| {

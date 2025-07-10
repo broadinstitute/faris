@@ -86,7 +86,7 @@ pub(crate) async fn try_creating_index(table: &lancedb::table::Table) -> Result<
     Ok(())
 }
 
-async fn add(app_state: &AppState, term: &str) -> Result<Vec<f32>, Error> {
+pub(crate) async fn add(app_state: &AppState, term: &str) -> Result<Vec<f32>, Error> {
     let embedding = embed::calculate_embedding(app_state, term)
         .wrap_err(format!("Failed to calculate embedding for term '{term}'"))?;
     let dim = embedding.len();
