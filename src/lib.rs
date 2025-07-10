@@ -7,11 +7,11 @@ use axum::routing::get;
 use axum::{Json, Router};
 use candle_core::{Device};
 use candle_transformers::models::bert::BertModel;
-use chrono::Local;
 use log::{info, LevelFilter};
 use simplelog::{ColorChoice, TermLogger, TerminalMode};
 use std::sync::Arc;
 use lancedb::Connection;
+use time::OffsetDateTime;
 use tokenizers::Tokenizer;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
@@ -19,6 +19,7 @@ use tokio::sync::RwLock;
 use crate::embed::{calculate_embedding, get_bert_model, get_device, get_tokenizer, BertModelWrap};
 use crate::lance::MaybeAdded;
 use crate::upload::UploadStats;
+use crate::util::format_date_time;
 
 mod config;
 mod error;
@@ -73,10 +74,10 @@ pub fn run() -> Result<(), Error> {
 
 async fn ping() -> String {
     info!("Received ping request");
-    format!(
-        "Faris server is running as of {}",
-        Local::now().format("%Y-%m-%d %H:%M:%S")
-    )
+    let now =
+        OffsetDateTime::now_local().map(|dt| format_date_time(&dt))
+            .unwrap_or("now".to_string());
+    format!("Faris server is running as of {now}")
 }
 async fn get_embedding(
     State(app_state): State<AppState>, Path(term): Path<String>,

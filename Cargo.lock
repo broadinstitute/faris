@@ -2242,7 +2242,6 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "candle-transformers",
- "chrono",
  "csv",
  "futures",
  "home",
