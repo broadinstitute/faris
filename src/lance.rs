@@ -87,7 +87,7 @@ pub(crate) async fn try_creating_index(table: &lancedb::table::Table) -> Result<
 }
 
 async fn add(app_state: &AppState, term: &str) -> Result<Vec<f32>, Error> {
-    let embedding = crate::embed::calculate_embedding(app_state, term)
+    let embedding = embed::calculate_embedding(app_state, term)
         .wrap_err(format!("Failed to calculate embedding for term '{term}'"))?;
     let dim = embedding.len();
     let terms = Arc::new(StringArray::from(vec![term])) as ArrayRef;

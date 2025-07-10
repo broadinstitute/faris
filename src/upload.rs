@@ -7,6 +7,7 @@ use time::OffsetDateTime;
 use tokio::sync::RwLock;
 use crate::error::{Error, ResultWrapErr};
 use crate::{lance, AppState};
+use crate::util::format_date_time;
 
 pub(crate) struct UploadTaskStats {
     pub(crate) file_name: String,
@@ -90,8 +91,8 @@ impl UploadStats {
 
 impl Display for UploadTaskStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Started at {}, as of {}, uploading {}", self.started, self.last_updated,
-            self.file_name)?;
+        write!(f, "Started at {}, as of {}, uploading {}", format_date_time(&self.started),
+               format_date_time(&self.last_updated), self.file_name)?;
         if self.upload_finished && self.indexing_finished {
             write!(f, " is finished uploading and indexing and")?;
         } else if self.upload_finished {
@@ -111,7 +112,7 @@ impl Display for UploadStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let now =
             OffsetDateTime::now_local()
-                .map(|dt| dt.to_string()).unwrap_or("now".to_string());
+                .map(|dt| format_date_time(&dt)).unwrap_or("now".to_string());
         writeln!(f, "As of {now} have received {} requests to upload files", self.tasks.len())?;
         for task in &self.tasks {
             writeln!(f, "{task}")?;

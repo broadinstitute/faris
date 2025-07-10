@@ -25,6 +25,7 @@ mod error;
 mod embed;
 mod lance;
 mod upload;
+mod util;
 
 #[derive(Clone)]
 pub(crate) struct AppState {
