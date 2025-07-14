@@ -1,9 +1,11 @@
 use std::fmt::Display;
 use std::io::BufReader;
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use lancedb::table::OptimizeAction;
 use log::info;
+use serde::Deserialize;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
 use crate::error::{Error, ResultWrapErr};
@@ -150,6 +152,13 @@ async fn upload_spawned(app_state: AppState, file_name: String,
     }
 }
 
+#[derive(Deserialize)]
+struct UploadRecord {
+    term: String,
+    phenotype: Option<String>,
+    gene_set: Option<String>,
+}
+
 async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<UploadStats>>,
                     handle: TaskStatHandle)
     -> Result<(), Error> {
@@ -158,26 +167,35 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
     let mut reader = csv::Reader::from_reader(BufReader::new(file));
     info!("Starting to upload terms from file: {}", file_path.display());
     let mut n_terms: usize = 0;
-    let mut term_batch: Vec<String> = Vec::new();
-    for record in reader.records() {
-        let record = record.wrap_err("Failed to read CSV record")?;
-        if let Some(term) = record.get(0) {
-            term_batch.push(term.to_string());
-            n_terms += 1;
-        }
+    let mut term_buffer: Vec<String> = Vec::new();
+    let mut phenotype_buffer: Vec<Option<String>> = Vec::new();
+    let mut gene_set_buffer: Vec<Option<String>> = Vec::new();
+    for record in reader.deserialize() {
+        let record: UploadRecord = record.wrap_err("Failed to read CSV record")?;
+        let UploadRecord { term, phenotype, gene_set } = record;
+        term_buffer.push(term);
+        phenotype_buffer.push(phenotype);
+        gene_set_buffer.push(gene_set);
         const BATCH_SIZE: usize = 1000;
-        if term_batch.len() >= BATCH_SIZE {
-            lance::add(&app_state, term_batch.clone()).await?;
-            info!("Uploaded {n_terms} terms");
-            term_batch.clear();
+        if term_buffer.len() >= BATCH_SIZE {
+            let n_terms_batch = term_buffer.len();
+            let term_batch = mem::take(&mut term_buffer);
+            let phenotype_batch = mem::take(&mut phenotype_buffer);
+            let gene_set_batch = mem::take(&mut gene_set_buffer);
+            lance::add(&app_state, term_batch, phenotype_batch, gene_set_batch).await?;
+            n_terms += n_terms_batch;
+            info!("Uploaded batch of {n_terms_batch} terms, {n_terms} total so far");
+            term_buffer.clear();
             update_stats(&stats, handle, |task| {
                 task.update_n_terms_uploaded(n_terms);
             }).await;
         }
     }
-    if !term_batch.is_empty() {
-        lance::add(&app_state, term_batch).await?;
-        info!("Uploaded {n_terms} terms");
+    if !term_buffer.is_empty() {
+        let n_terms_batch = term_buffer.len();
+        lance::add(&app_state, term_buffer, phenotype_buffer, gene_set_buffer).await?;
+        n_terms += n_terms_batch;
+        info!("Uploaded batch of {n_terms_batch} terms, {n_terms} total so far");
     }
     update_stats(&stats, handle, |task| {
         task.update_n_terms_uploaded(n_terms);

@@ -12,7 +12,10 @@ use lancedb::index::Index;
 use log::{info, warn};
 
 pub(crate) const TERM_COLUMN: &str = "term";
+pub(crate) const PHENOTYPE_COLUMN: &str = "phenotype";
+pub(crate) const GENE_SET_COLUMN: &str = "gene_set";
 pub(crate) const EMBEDDING_COLUMN: &str = "embedding";
+pub(crate) const DISTANCE_COLUMN: &str = "_distance";
 
 pub(crate) async fn get_connection(
     config: &LanceDbConfig, hidden_size: usize,
@@ -55,6 +58,8 @@ async fn create_table(
 ) -> Result<(), Error> {
     let schema = Arc::new(Schema::new(vec![
         Field::new(TERM_COLUMN, DataType::Utf8, false),
+        Field::new(PHENOTYPE_COLUMN, DataType::Utf8, true),
+        Field::new(GENE_SET_COLUMN, DataType::Utf8, true),
         Field::new(
             EMBEDDING_COLUMN,
             DataType::FixedSizeList(
@@ -86,7 +91,8 @@ pub(crate) async fn try_creating_index(table: &lancedb::table::Table) -> Result<
     Ok(())
 }
 
-pub(crate) async fn add(app_state: &AppState, terms: Vec<String>) -> Result<Vec<Vec<f32>>, Error> {
+pub(crate) async fn add(app_state: &AppState, terms: Vec<String>, phenotypes: Vec<Option<String>>,
+                        gene_sets: Vec<Option<String>>) -> Result<Vec<Vec<f32>>, Error> {
     if terms.is_empty() {
         Ok(Vec::new())
     } else {
@@ -100,6 +106,8 @@ pub(crate) async fn add(app_state: &AppState, terms: Vec<String>) -> Result<Vec<
             .flat_map(|e| e.iter().cloned())
             .collect();
         let terms_ref = Arc::new(StringArray::from(terms)) as ArrayRef;
+        let phenotypes_ref = Arc::new(StringArray::from(phenotypes)) as ArrayRef;
+        let gene_sets_ref = Arc::new(StringArray::from(gene_sets)) as ArrayRef;
         let values = Arc::new(Float32Array::from(embeddings_flat)) as ArrayRef;
         let field = Arc::new(Field::new("item", DataType::Float32, false));
         let embeddings_flat_ref =
@@ -107,6 +115,8 @@ pub(crate) async fn add(app_state: &AppState, terms: Vec<String>) -> Result<Vec<
             .expect("Failed to build FixedSizeListArray")) as ArrayRef;
         let batch = RecordBatch::try_from_iter(vec![
             ("term", terms_ref),
+            ("phenotype", phenotypes_ref),
+            ("gene_set", gene_sets_ref),
             ("embedding", embeddings_flat_ref),
         ])?;
         let table = app_state.lance_connection
@@ -125,7 +135,7 @@ pub(crate) async fn add(app_state: &AppState, terms: Vec<String>) -> Result<Vec<
     }
 }
 
-async fn get(
+pub(crate) async fn get(
     app_state: &AppState, term: &str,
 ) -> Result<Option<Vec<f32>>, Error> {
     let table = &app_state.lance_connection
@@ -170,28 +180,11 @@ async fn get(
     }
 }
 
-pub(crate) struct MaybeAdded {
-    pub(crate) embedding: Vec<f32>,
-    pub(crate) was_added: bool,
-}
-
-pub(crate) async fn add_if_not_exists(app_state: &AppState, term: &str)
-    -> Result<MaybeAdded, Error> {
-    if let Some(embedding) = get(app_state, term).await? {
-        Ok(MaybeAdded { embedding, was_added: false } )
-    } else {
-        let terms = vec![term.to_string()];
-        add(app_state, terms).await.map(|embeddings| {
-            let embedding = embeddings.into_iter().next()
-                .expect("Expected at least one embedding after adding term");
-            MaybeAdded { embedding, was_added: true }
-        })
-    }
-}
-
 #[derive(Serialize)]
 pub(crate) struct NearTerm {
     pub term: String,
+    pub phenotype: Option<String>,
+    pub gene_set: Option<String>,
     pub distance: f32,
 }
 
@@ -214,33 +207,52 @@ pub(crate) async fn find_nearest_to(app_state: &AppState, term: &str, k: usize)
             batch.wrap_err(
                 format!("Failed to retrieve batch for nearest neighbors of term '{term}'")
             )?;
-        let terms_column = batch
-            .column_by_name("term")
-            .ok_or_else(|| Error::from(
-                format!("No term column in results for term '{term}'"))
-            )?;
-        let terms_array = terms_column.as_any().downcast_ref::<StringArray>()
-            .ok_or_else(|| Error::from(
-                format!("Term column is not a StringArray for term '{term}'"))
-            )?;
-        let distances_column = batch
-            .column_by_name("_distance")
-            .ok_or_else(|| Error::from(
-                format!("No distance column in results for term '{term}'"))
-            )?;
-        let distances_array =
-            distances_column.as_any().downcast_ref::<Float32Array>().ok_or_else(||
-                Error::from(
-                    format!("Distance column is not a Float32Array for term '{term}'")
-                )
-            )?;
-        terms_array.iter().zip(distances_array.iter())
-            .for_each(|(opt, dist)| {
-                let term = opt.map(|s| s.to_string()).unwrap_or_default();
+        let terms_array = get_string_column(term, &batch, TERM_COLUMN)?;
+        let phenotypes_array = get_string_column(term, &batch, PHENOTYPE_COLUMN)?;
+        let gene_sets_array = get_string_column(term, &batch, GENE_SET_COLUMN)?;
+        let distances_array = get_float_array_column(term, &batch, DISTANCE_COLUMN)?;
+        terms_array.iter().zip(phenotypes_array.iter()).zip(gene_sets_array.iter())
+            .zip(distances_array.iter())
+            .for_each(|(((term,phenotype),gene_set),
+                           dist)| {
+                let term = term.map(|s| s.to_string()).unwrap_or_default();
+                let phenotype = phenotype.map(|s| s.to_string());
+                let gene_set = gene_set.map(|s| s.to_string());
                 let distance = dist.unwrap_or(f32::NAN);
-                nearest_terms.push(NearTerm { term, distance });
+                nearest_terms.push(NearTerm { term, phenotype, gene_set, distance });
             });
     }
     nearest_terms.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
     Ok(nearest_terms)
 }
+
+fn get_string_column<'a>(term: &str, batch: &'a RecordBatch, column_name: &str)
+                         -> Result<&'a StringArray, Error> {
+    let terms_column = batch
+        .column_by_name(column_name)
+        .ok_or_else(|| Error::from(
+            format!("No '{column_name}' column in results for term '{term}'"))
+        )?;
+    let terms_array = terms_column.as_any().downcast_ref::<StringArray>()
+        .ok_or_else(|| Error::from(
+            format!("Column '{column_name}' is not a StringArray for term '{term}'"))
+        )?;
+    Ok(terms_array)
+}
+
+fn get_float_array_column<'a>(term: &str, batch: &'a RecordBatch, column_name: &str)
+    -> Result<&'a Float32Array, Error> {
+    let distances_column = batch
+        .column_by_name(column_name)
+        .ok_or_else(|| Error::from(
+            format!("No '{column_name}' column in results for term '{term}'"))
+        )?;
+    let distances_array =
+        distances_column.as_any().downcast_ref::<Float32Array>().ok_or_else(||
+            Error::from(
+                format!("Column '{column_name}' is not a Float32Array for term '{term}'")
+            )
+        )?;
+    Ok(distances_array)
+}
+

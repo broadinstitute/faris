@@ -17,7 +17,6 @@ use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 use crate::embed::{calculate_embedding, get_bert_model, get_device, get_tokenizer, BertModelWrap};
-use crate::lance::MaybeAdded;
 use crate::upload::UploadStats;
 use crate::util::format_date_time;
 
@@ -54,8 +53,8 @@ pub fn run() -> Result<(), Error> {
         let app_state = init_app_state(&config).await?;
         let router = Router::new()
             .route("/ping", get(ping))
-            .route("/embedding/{term}", get(get_embedding))
-            .route("/add/{term}", get(add_term))
+            .route("/embedding/{term}", get(get_calculated_embedding))
+            .route("/embedding_stored/{term}", get(get_stored_embedding))
             .route("/nearest/{term}", get(find_nearest))
             .route("/upload/{file_name}", get(upload_file))
             .route("/upload_stats", get(upload_stats))
@@ -79,7 +78,7 @@ async fn ping() -> String {
             .unwrap_or("now".to_string());
     format!("Faris server is running as of {now}")
 }
-async fn get_embedding(
+async fn get_calculated_embedding(
     State(app_state): State<AppState>, Path(term): Path<String>,
 ) -> Result<Json<Vec<f32>>, (StatusCode, String)> {
     info!("Received request for embedding of term: {term}");
@@ -92,27 +91,25 @@ async fn get_embedding(
     }
 }
 
-async fn add_term(
+async fn get_stored_embedding(
     State(app_state): State<AppState>, Path(term): Path<String>,
 ) -> Result<Json<Vec<f32>>, (StatusCode, String)> {
-    info!("Received request to add: {term}");
-    match lance::add_if_not_exists(&app_state, &term).await {
-        Ok(MaybeAdded { embedding, was_added }) => {
-            if was_added {
-                info!("Added term '{term}' with embedding: [{}, {}, {} ...]",
-                embedding[0], embedding[1], embedding[2]);
-            } else {
-                info!("Term '{term}' already existed with embedding: [{}, {}, {} ...]",
-                embedding[0], embedding[1], embedding[2]);
+    info!("Received request for embedding of term: {term}");
+    match lance::get(&app_state, &term).await {
+        Ok(embedding) => {
+            match embedding {
+                Some(embedding) => Ok(Json(embedding)),
+                None => Err((StatusCode::NOT_FOUND,
+                             format!("No embedding found for term: {term}")))
             }
-            Ok(Json(embedding))
-        }
+        },
         Err(e) => {
-            info!("Error adding term {term}: {e}");
+            info!("Error calculating embedding for term {term}: {e}");
             Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
     }
 }
+
 
 async fn find_nearest(
     State(app_state): State<AppState>, Path(term): Path<String>,
