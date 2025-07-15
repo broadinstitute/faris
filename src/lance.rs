@@ -120,10 +120,10 @@ pub(crate) async fn add(app_state: &AppState, terms: Vec<String>, phenotypes: Ve
             Arc::new(FixedSizeListArray::try_new(field, dim, values, None)
             .expect("Failed to build FixedSizeListArray")) as ArrayRef;
         let batch = RecordBatch::try_from_iter(vec![
-            ("term", terms_ref),
-            ("phenotype", phenotypes_ref),
-            ("gene_set", gene_sets_ref),
-            ("embedding", embeddings_flat_ref),
+            (TERM_COLUMN, terms_ref),
+            (PHENOTYPE_COLUMN, phenotypes_ref),
+            (GENE_SET_COLUMN, gene_sets_ref),
+            (EMBEDDING_COLUMN, embeddings_flat_ref),
         ])?;
         let table = app_state.lance_connection
             .open_table(&app_state.table_name)

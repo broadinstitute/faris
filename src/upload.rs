@@ -173,6 +173,8 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
     for record in reader.deserialize() {
         let record: UploadRecord = record.wrap_err("Failed to read CSV record")?;
         let UploadRecord { term, phenotype, gene_set } = record;
+        info!("Phenotype: {}", phenotype.as_deref().unwrap_or("None"));
+        info!("Gene set: {}", gene_set.as_deref().unwrap_or("None"));
         term_buffer.push(term);
         phenotype_buffer.push(phenotype);
         gene_set_buffer.push(gene_set);
