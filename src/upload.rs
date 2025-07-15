@@ -164,7 +164,8 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
     -> Result<(), Error> {
     let file = std::fs::File::open(&file_path)
         .wrap_err(format!("Failed to open file {}", file_path.display()))?;
-    let mut reader = csv::Reader::from_reader(BufReader::new(file));
+    let mut reader =
+        csv::ReaderBuilder::new().trim(csv::Trim::All).from_reader(file);
     info!("Starting to upload terms from file: {}", file_path.display());
     let mut n_terms: usize = 0;
     let mut term_buffer: Vec<String> = Vec::new();
