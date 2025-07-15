@@ -211,19 +211,42 @@ pub(crate) async fn find_nearest_to(app_state: &AppState, term: &str, k: usize)
         let phenotypes_array = get_string_column(term, &batch, PHENOTYPE_COLUMN)?;
         let gene_sets_array = get_string_column(term, &batch, GENE_SET_COLUMN)?;
         let distances_array = get_float_array_column(term, &batch, DISTANCE_COLUMN)?;
-        terms_array.iter().zip(phenotypes_array.iter()).zip(gene_sets_array.iter())
-            .zip(distances_array.iter())
-            .for_each(|(((term,phenotype),gene_set),
-                           dist)| {
-                let term = term.map(|s| s.to_string()).unwrap_or_default();
-                let phenotype = phenotype.map(|s| s.to_string());
-                let gene_set = gene_set.map(|s| s.to_string());
-                let distance = dist.unwrap_or(f32::NAN);
-                nearest_terms.push(NearTerm { term, phenotype, gene_set, distance });
-            });
+        for i in 0..terms_array.len() {
+            let term = get_string_value(term, terms_array, i)?;
+            let phenotype = get_opt_string_value(phenotypes_array, i);
+            let gene_set = get_opt_string_value(gene_sets_array, i);
+            let distance = get_f32_value(distances_array, i);
+            nearest_terms.push(NearTerm { term, phenotype, gene_set, distance });
+        }
     }
     nearest_terms.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
     Ok(nearest_terms)
+}
+
+fn get_f32_value(distances_array: &Float32Array, i: usize) -> f32 {
+    if distances_array.is_null(i) {
+        f32::NAN
+    } else {
+        distances_array.value(i)
+    }
+}
+
+fn get_opt_string_value(phenotypes_array: &StringArray, i: usize) -> Option<String> {
+    if phenotypes_array.is_null(i) {
+        None
+    } else {
+        Some(phenotypes_array.value(i).to_string())
+    }
+}
+
+fn get_string_value(term: &str, terms_array: &StringArray, i: usize) -> Result<String, Error> {
+    if terms_array.is_null(i) {
+        Err(Error::from(
+            format!("Null term found in results for nearest neighbors of term '{term}'")
+        ))
+    } else {
+        Ok(terms_array.value(i).to_string())
+    }
 }
 
 fn get_string_column<'a>(term: &str, batch: &'a RecordBatch, column_name: &str)
