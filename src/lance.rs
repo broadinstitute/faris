@@ -49,7 +49,13 @@ async fn create_table_if_not_exists(
         .execute()
         .await
         .wrap_err(format!("Failed to open table {table_name}"))?;
-    try_creating_index(&table).await?;
+    let schema = table.schema().await?;
+    info!("{schema:#?}");
+    let mut stream = table.query().limit(5).execute().await?;
+    while let Some(batch_result) = stream.next().await {
+        let batch: RecordBatch = batch_result?;
+        println!("{batch:?}");
+    }    try_creating_index(&table).await?;
     Ok(())
 }
 
