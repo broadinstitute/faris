@@ -57,7 +57,10 @@ async fn create_table_if_not_exists(
     while let Some(batch_result) = stream.next().await {
         let batch: RecordBatch = batch_result?;
         println!("{batch:?}");
-    }    try_creating_index(&table).await?;
+    }
+    if let Err(error) = try_creating_index(&table).await {
+        info!("Failed to create index on table {table_name}: {error}");
+    }
     Ok(())
 }
 
