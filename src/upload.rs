@@ -3,7 +3,7 @@ use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use lancedb::table::OptimizeAction;
-use log::info;
+use log::{error, info};
 use serde::Deserialize;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
@@ -174,8 +174,17 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
     let mut gene_set_buffer: Vec<Option<String>> = Vec::new();
     let mut source_buffer: Vec<Option<String>> = Vec::new();
     let mut beta_buffer: Vec<Option<f32>> = Vec::new();
-    for record in reader.deserialize() {
-        let record: UploadRecord = record.wrap_err("Failed to read CSV record")?;
+    for record in reader.deserialize::<UploadRecord>() {
+        let record: UploadRecord =
+            match record {
+                Ok(rec) => rec,
+                Err(error) => {
+                    let error = Error::wrap("Failed to read CSV record", error);
+                    error!("Error reading record from file {}: {}. Skipping.",
+                           file_path.display(), error);
+                    continue
+                },
+            };
         let UploadRecord {
             term, phenotype, gene_set, source,
             beta_uncorrected
