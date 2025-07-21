@@ -156,6 +156,8 @@ struct UploadRecord {
     term: String,
     phenotype: Option<String>,
     gene_set: Option<String>,
+    source: Option<String>,
+    beta_uncorrected: Option<f32>,
 }
 
 async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<UploadStats>>,
@@ -170,19 +172,29 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
     let mut term_buffer: Vec<String> = Vec::new();
     let mut phenotype_buffer: Vec<Option<String>> = Vec::new();
     let mut gene_set_buffer: Vec<Option<String>> = Vec::new();
+    let mut source_buffer: Vec<Option<String>> = Vec::new();
+    let mut beta_buffer: Vec<Option<f32>> = Vec::new();
     for record in reader.deserialize() {
         let record: UploadRecord = record.wrap_err("Failed to read CSV record")?;
-        let UploadRecord { term, phenotype, gene_set } = record;
+        let UploadRecord {
+            term, phenotype, gene_set, source,
+            beta_uncorrected
+        } = record;
         term_buffer.push(term);
         phenotype_buffer.push(phenotype);
         gene_set_buffer.push(gene_set);
+        source_buffer.push(source);
+        beta_buffer.push(beta_uncorrected);
         const BATCH_SIZE: usize = 1000;
         if term_buffer.len() >= BATCH_SIZE {
             let n_terms_batch = term_buffer.len();
             let term_batch = mem::take(&mut term_buffer);
             let phenotype_batch = mem::take(&mut phenotype_buffer);
             let gene_set_batch = mem::take(&mut gene_set_buffer);
-            lance::add(&app_state, term_batch, phenotype_batch, gene_set_batch).await?;
+            let source_batch = mem::take(&mut source_buffer);
+            let beta_batch = mem::take(&mut beta_buffer);
+            lance::add(&app_state, term_batch, phenotype_batch, gene_set_batch, source_batch,
+                       beta_batch).await?;
             n_terms += n_terms_batch;
             info!("Uploaded batch of {n_terms_batch} terms, {n_terms} total so far");
             term_buffer.clear();
@@ -193,7 +205,8 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
     }
     if !term_buffer.is_empty() {
         let n_terms_batch = term_buffer.len();
-        lance::add(&app_state, term_buffer, phenotype_buffer, gene_set_buffer).await?;
+        lance::add(&app_state, term_buffer, phenotype_buffer, gene_set_buffer, source_buffer,
+                   beta_buffer).await?;
         n_terms += n_terms_batch;
         info!("Uploaded batch of {n_terms_batch} terms, {n_terms} total so far");
     }
