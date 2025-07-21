@@ -16,6 +16,8 @@ use tokenizers::Tokenizer;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
+use tower_http::cors;
+use tower_http::cors::CorsLayer;
 use crate::embed::{calculate_embedding, get_bert_model, get_device, get_tokenizer, BertModelWrap};
 use crate::upload::UploadStats;
 use crate::util::format_date_time;
@@ -51,6 +53,9 @@ pub fn run() -> Result<(), Error> {
     let runtime = Runtime::new().wrap_err("Error initializing Tokio runtime")?;
     runtime.block_on(async {
         let app_state = init_app_state(&config).await?;
+        let cors =
+            CorsLayer::new().allow_origin(cors::Any).allow_methods(cors::Any)
+                .allow_headers(cors::Any);
         let router = Router::new()
             .route("/ping", get(ping))
             .route("/embedding/{term}", get(get_calculated_embedding))
@@ -58,6 +63,7 @@ pub fn run() -> Result<(), Error> {
             .route("/nearest/{term}", get(find_nearest))
             .route("/upload/{file_name}", get(upload_file))
             .route("/upload_stats", get(upload_stats))
+            .layer(cors)
             .with_state(app_state);
         let listener = TcpListener::bind(endpoint)
             .await

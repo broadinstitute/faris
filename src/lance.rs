@@ -9,7 +9,7 @@ use lancedb::{connect, Connection};
 use serde::Serialize;
 use std::sync::Arc;
 use lancedb::index::Index;
-use log::{info, warn};
+use log::info;
 
 pub(crate) const TERM_COLUMN: &str = "term";
 pub(crate) const PHENOTYPE_COLUMN: &str = "phenotype";
@@ -90,13 +90,12 @@ async fn create_table(
 }
 
 pub(crate) async fn try_creating_index(table: &lancedb::table::Table) -> Result<(), Error> {
-    match table.create_index(&[EMBEDDING_COLUMN], Index::Auto).execute().await {
-        Ok(_) => {
-            info!("Index created successfully.");
-        }
-        Err(e) => {
-            warn!("Failed to create index: {e}");
-        }
+    let indices = table.list_indices().await?;
+    let index_exists =
+        indices.iter().any(|idx| idx.columns.contains(&EMBEDDING_COLUMN.to_string()));
+    if !index_exists {
+        table.create_index(&[EMBEDDING_COLUMN], Index::Auto)
+            .execute().await?;
     }
     Ok(())
 }
