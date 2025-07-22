@@ -58,9 +58,6 @@ async fn create_table_if_not_exists(
         let batch: RecordBatch = batch_result?;
         println!("{batch:?}");
     }
-    if let Err(error) = try_creating_index(&table).await {
-        info!("Failed to create index on table {table_name}: {error}");
-    }
     Ok(())
 }
 
@@ -88,7 +85,9 @@ async fn create_table(
             .execute()
             .await
             .wrap_err(format!("Failed to create table {table_name}"))?;
-    try_creating_index(&table).await?;
+    if let Err(error) = try_creating_index(&table).await {
+        info!("Failed to create index on table {table_name}: {error}");
+    }
     Ok(())
 }
 

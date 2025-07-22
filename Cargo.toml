@@ -22,7 +22,7 @@ candle-core = "0.9.1"
 candle-transformers = "0.9.1"
 candle-nn = "0.9.1"
 tokenizers = "0.21.2"
-serde_json = "1.0.140"
+serde_json = "1.0.141"
 # Needs to be here to set the "static" feature
 lzma-sys = { version = "0.1.20", features = ["static"] }
 lancedb = "0.21.1"
