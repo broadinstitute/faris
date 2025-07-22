@@ -61,7 +61,7 @@ async fn create_table_if_not_exists(
     Ok(())
 }
 
-async fn create_table(
+pub(crate) async fn create_table(
     connection: &Connection, table_name: &str, hidden_size: usize,
 ) -> Result<(), Error> {
     let schema = Arc::new(Schema::new(vec![

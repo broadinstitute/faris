@@ -35,6 +35,7 @@ pub(crate) struct AppState {
     device: Arc<Device>,
     bert_model: Arc<BertModel>,
     lance_connection: Connection,
+    hidden_size: usize,
     table_name: String,
     upload_dir: String,
     upload_stats: Arc<RwLock<UploadStats>>
@@ -56,13 +57,18 @@ pub fn run() -> Result<(), Error> {
         let cors =
             CorsLayer::new().allow_origin(cors::Any).allow_methods(cors::Any)
                 .allow_headers(cors::Any);
-        let router = Router::new()
+        let table_router = Router::new()
+            .route("/create", get(create_table));
+        let default_router = Router::new()
             .route("/ping", get(ping))
             .route("/embedding/{term}", get(get_calculated_embedding))
             .route("/embedding_stored/{term}", get(get_stored_embedding))
             .route("/nearest/{term}", get(find_nearest))
             .route("/upload/{file_name}", get(upload_file))
-            .route("/upload_stats", get(upload_stats))
+            .route("/upload_stats", get(upload_stats));
+        let router = Router::new()
+            .nest("/{table}", table_router)
+            .merge(default_router)
             .layer(cors)
             .with_state(app_state);
         let listener = TcpListener::bind(endpoint)
@@ -77,6 +83,22 @@ pub fn run() -> Result<(), Error> {
     Ok(())
 }
 
+async fn create_table(
+    State(app_state): State<AppState>, Path(table_name): Path<String>,
+) -> Result<String, (StatusCode, String)> {
+    info!("Received request to create table: {table_name}");
+    match lance::create_table(&app_state.lance_connection, &table_name, app_state.hidden_size)
+        .await {
+        Ok(_) => {
+            info!("Table {table_name} created successfully");
+            Ok(format!("Table {table_name} created successfully"))
+        }
+        Err(e) => {
+            info!("Error creating table {table_name}: {e}");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        }
+    }
+}
 async fn ping() -> String {
     info!("Received ping request");
     let now =
@@ -166,7 +188,8 @@ async fn init_app_state(config: &Config) -> Result<AppState, Error> {
     let upload_dir = config.server.upload_dir.clone();
     let upload_stats = Arc::new(RwLock::new(UploadStats::new()));
     Ok(AppState {
-        tokenizer, device, bert_model, lance_connection, table_name, upload_dir, upload_stats
+        tokenizer, device, bert_model, lance_connection, hidden_size, table_name, upload_dir,
+        upload_stats
     })
 }
 
