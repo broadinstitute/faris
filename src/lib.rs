@@ -58,9 +58,12 @@ pub fn run() -> Result<(), Error> {
             CorsLayer::new().allow_origin(cors::Any).allow_methods(cors::Any)
                 .allow_headers(cors::Any);
         let table_router = Router::new()
-            .route("/create", get(create_table));
+            .route("/create_table", get(create_table))
+            .route("/drop_table", get(drop_table))
+            .route("/upload/{file_name}", get(upload_file_to_table));
         let default_router = Router::new()
             .route("/ping", get(ping))
+            .route("/list_tables", get(list_tables))
             .route("/embedding/{term}", get(get_calculated_embedding))
             .route("/embedding_stored/{term}", get(get_stored_embedding))
             .route("/nearest/{term}", get(find_nearest))
@@ -99,6 +102,39 @@ async fn create_table(
         }
     }
 }
+
+async fn drop_table(
+    State(app_state): State<AppState>, Path(table_name): Path<String>,
+) -> Result<String, (StatusCode, String)> {
+    info!("Received request to drop table: {table_name}");
+    match lance::drop_table(&app_state.lance_connection, &table_name).await {
+        Ok(_) => {
+            info!("Table {table_name} dropped successfully");
+            Ok(format!("Table {table_name} dropped successfully"))
+        }
+        Err(e) => {
+            info!("Error dropping table {table_name}: {e}");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        }
+    }
+}
+
+async fn list_tables(
+    State(app_state): State<AppState>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    info!("Received request to list tables");
+    match lance::list_tables(&app_state.lance_connection).await {
+        Ok(tables) => {
+            info!("Tables listed successfully");
+            Ok(Json(tables))
+        }
+        Err(e) => {
+            info!("Error listing tables: {e}");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        }
+    }
+}
+
 async fn ping() -> String {
     info!("Received ping request");
     let now =
@@ -154,16 +190,28 @@ async fn find_nearest(
 
 async fn upload_file(
     State(app_state): State<AppState>, Path(file_name): Path<String>,
-) -> Result<String, (StatusCode, String)> { 
-    info!("Received file upload request for: {file_name}");
+) -> Result<String, (StatusCode, String)> {
+    let table_name = app_state.table_name.clone();
+    do_upload_file(&app_state, table_name, file_name).await
+}
+
+async fn upload_file_to_table(
+    State(app_state): State<AppState>, Path((table_name, file_name)): Path<(String, String)>,
+) -> Result<String, (StatusCode, String)> {
+    do_upload_file(&app_state, table_name, file_name).await
+}
+
+async fn do_upload_file(app_state: &AppState, table_name: String, file_name: String)
+    -> Result<String, (StatusCode, String)> {
+    info!("Received request to upload file {file_name} to table {table_name}.");
     let stats = app_state.upload_stats.clone();
-    match upload::upload_file(&app_state, file_name.clone(), stats).await {
+    match upload::upload_file(app_state, &app_state.table_name, file_name.clone(), stats).await {
         Ok(response) => {
-            info!("Started uploading file {file_name} uploaded successfully");
+            info!("Started uploading file {file_name} to table {table_name}.");
             Ok(response)
         }
         Err(e) => {
-            info!("Error uploading file {file_name}: {e}");
+            info!("Error uploading file {file_name} to table {table_name}: {e}");
             Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
     }

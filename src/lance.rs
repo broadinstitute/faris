@@ -91,6 +91,18 @@ pub(crate) async fn create_table(
     Ok(())
 }
 
+pub(crate) async fn list_tables(connection: &Connection) -> Result<Vec<String>, Error> {
+    connection.table_names().execute()
+        .await
+        .wrap_err("Failed to list tables.".to_string())
+}
+
+pub(crate) async fn drop_table(connection: &Connection, table_name: &str) -> Result<(), Error> {
+        connection.drop_table(table_name).await
+            .wrap_err(format!("Failed to drop table {table_name}"))?;
+    Ok(())
+}
+
 pub(crate) async fn try_creating_index(table: &lancedb::table::Table) -> Result<(), Error> {
     let indices = table.list_indices().await?;
     let index_exists =
@@ -102,9 +114,10 @@ pub(crate) async fn try_creating_index(table: &lancedb::table::Table) -> Result<
     Ok(())
 }
 
-pub(crate) async fn add(app_state: &AppState, terms: Vec<String>, phenotypes: Vec<Option<String>>,
-                        gene_sets: Vec<Option<String>>, sources: Vec<Option<String>>,
-                        beta_uncorrecteds: Vec<Option<f32>>) -> Result<Vec<Vec<f32>>, Error> {
+pub(crate) async fn add(app_state: &AppState, table_name: &str, terms: Vec<String>,
+                        phenotypes: Vec<Option<String>>, gene_sets: Vec<Option<String>>,
+                        sources: Vec<Option<String>>, beta_uncorrecteds: Vec<Option<f32>>)
+    -> Result<Vec<Vec<f32>>, Error> {
     if terms.is_empty() {
         Ok(Vec::new())
     } else {
@@ -137,7 +150,7 @@ pub(crate) async fn add(app_state: &AppState, terms: Vec<String>, phenotypes: Ve
             (BETA_UNCORRECTED_COLUMN, beta_uncorrecteds_ref),
         ])?;
         let table = app_state.lance_connection
-            .open_table(&app_state.table_name)
+            .open_table(table_name)
             .execute()
             .await
             .wrap_err(format!("Could not open table {}", app_state.table_name))?;

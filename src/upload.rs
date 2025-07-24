@@ -122,7 +122,7 @@ impl Display for UploadStats {
         Ok(())
     }
 }
-pub(crate) async fn upload_file(app_state: &AppState, file_name: String,
+pub(crate) async fn upload_file(app_state: &AppState, table_name: &str, file_name: String,
                                 stats: Arc<RwLock<UploadStats>>)
     -> Result<String, Error> {
     let task_handle = {
@@ -130,19 +130,20 @@ pub(crate) async fn upload_file(app_state: &AppState, file_name: String,
     };
     let message = format!("Processing request to upload {file_name}");
     let app_state = app_state.clone();
+    let table_name = table_name.to_string();
     tokio::spawn( async {
         tokio::task::spawn_blocking(move || {
-            upload_spawned(app_state, file_name, stats, task_handle)
+            upload_spawned(app_state, table_name, file_name, stats, task_handle)
         }).await
     }.await.wrap_err("Error spawning")?);
     Ok(message)
 }
 
-async fn upload_spawned(app_state: AppState, file_name: String,
+async fn upload_spawned(app_state: AppState, table_name: String, file_name: String,
                         stats: Arc<RwLock<UploadStats>>, handle: TaskStatHandle) {
     let file_path = Path::new(&app_state.upload_dir).join(&file_name);
     let upload_result =
-        try_upload(app_state, file_path, stats.clone(), handle).await;
+        try_upload(app_state, &table_name, file_path, stats.clone(), handle).await;
     if let Err(error) = upload_result {
         let error = error.to_string();
         update_stats(&stats, handle, |task| {
@@ -160,8 +161,8 @@ struct UploadRecord {
     beta_uncorrected: Option<f32>,
 }
 
-async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<UploadStats>>,
-                    handle: TaskStatHandle)
+async fn try_upload(app_state: AppState, table_name: &str, file_path: PathBuf,
+                    stats: Arc<RwLock<UploadStats>>, handle: TaskStatHandle)
     -> Result<(), Error> {
     let file = std::fs::File::open(&file_path)
         .wrap_err(format!("Failed to open file {}", file_path.display()))?;
@@ -202,8 +203,8 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
             let gene_set_batch = mem::take(&mut gene_set_buffer);
             let source_batch = mem::take(&mut source_buffer);
             let beta_batch = mem::take(&mut beta_buffer);
-            lance::add(&app_state, term_batch, phenotype_batch, gene_set_batch, source_batch,
-                       beta_batch).await?;
+            lance::add(&app_state, table_name, term_batch, phenotype_batch, gene_set_batch,
+                       source_batch, beta_batch).await?;
             n_terms += n_terms_batch;
             info!("Uploaded batch of {n_terms_batch} terms, {n_terms} total so far");
             term_buffer.clear();
@@ -214,8 +215,8 @@ async fn try_upload(app_state: AppState, file_path: PathBuf, stats: Arc<RwLock<U
     }
     if !term_buffer.is_empty() {
         let n_terms_batch = term_buffer.len();
-        lance::add(&app_state, term_buffer, phenotype_buffer, gene_set_buffer, source_buffer,
-                   beta_buffer).await?;
+        lance::add(&app_state, table_name, term_buffer, phenotype_buffer, gene_set_buffer,
+                   source_buffer, beta_buffer).await?;
         n_terms += n_terms_batch;
         info!("Uploaded batch of {n_terms_batch} terms, {n_terms} total so far");
     }
