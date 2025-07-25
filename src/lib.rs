@@ -19,6 +19,7 @@ use tokio::sync::RwLock;
 use tower_http::cors;
 use tower_http::cors::CorsLayer;
 use crate::embed::{calculate_embedding, get_bert_model, get_device, get_tokenizer, BertModelWrap};
+use crate::lance::TableStats;
 use crate::upload::UploadStats;
 use crate::util::format_date_time;
 
@@ -121,7 +122,7 @@ async fn drop_table(
 
 async fn list_tables(
     State(app_state): State<AppState>,
-) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+) -> Result<Json<Vec<TableStats>>, (StatusCode, String)> {
     info!("Received request to list tables");
     match lance::list_tables(&app_state.lance_connection).await {
         Ok(tables) => {

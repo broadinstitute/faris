@@ -91,10 +91,29 @@ pub(crate) async fn create_table(
     Ok(())
 }
 
-pub(crate) async fn list_tables(connection: &Connection) -> Result<Vec<String>, Error> {
-    connection.table_names().execute()
+#[derive(Serialize)]
+pub(crate) struct TableStats {
+    name: String,
+    n_rows: usize,
+}
+
+pub(crate) async fn list_tables(connection: &Connection) -> Result<Vec<TableStats>, Error> {
+    let table_names = connection.table_names().execute()
         .await
-        .wrap_err("Failed to list tables.".to_string())
+        .wrap_err("Failed to list tables.".to_string())?;
+    let table_stats =
+        table_names.into_iter()
+        .map(async |name| {
+            let n_rows = connection
+                .open_table(&name)
+                .execute()
+                .await
+                .wrap_err(format!("Failed to open table {name}"))?
+                .count_rows(None)
+                .await?;
+            Ok(TableStats { name, n_rows })
+        });
+    futures::future::try_join_all(table_stats).await
 }
 
 pub(crate) async fn drop_table(connection: &Connection, table_name: &str) -> Result<(), Error> {
