@@ -13,6 +13,7 @@ use crate::util::format_date_time;
 
 pub(crate) struct UploadTaskStats {
     pub(crate) file_name: String,
+    pub(crate) table_name: String,
     pub(crate) n_terms_uploaded: usize,
     pub(crate) upload_finished: bool,
     pub(crate) indexing_finished: bool,
@@ -31,12 +32,13 @@ pub(crate) struct UploadStats {
 }
 
 impl UploadTaskStats {
-    pub(crate) fn new(file_name: String) -> Result<Self, Error> {
+    pub(crate) fn new(file_name: String, table_name: String) -> Result<Self, Error> {
         let started = OffsetDateTime::now_local()
             .wrap_err("Failed to get local time")?;
         let last_updated = started;
         Ok(UploadTaskStats {
             file_name,
+            table_name,
             n_terms_uploaded: 0,
             upload_finished: false,
             indexing_finished: false,
@@ -75,9 +77,10 @@ impl UploadStats {
         UploadStats { tasks: Vec::new() }
     }
 
-    pub(crate) fn add_upload(&mut self, file_name: String) -> Result<TaskStatHandle, Error> {
+    pub(crate) fn add_upload(&mut self, file_name: String, table_name: String) 
+        -> Result<TaskStatHandle, Error> {
         let handle = TaskStatHandle { i: self.tasks.len(), };
-        self.tasks.push(UploadTaskStats::new(file_name)?);
+        self.tasks.push(UploadTaskStats::new(file_name, table_name)?);
         Ok(handle)
     }
     pub(crate) fn update_task<F>(&mut self, handle: TaskStatHandle, mutator: F)
@@ -93,8 +96,9 @@ impl UploadStats {
 
 impl Display for UploadTaskStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Started at {}, as of {}, uploading {}", format_date_time(&self.started),
-               format_date_time(&self.last_updated), self.file_name)?;
+        write!(f, "Started at {}, as of {}, uploading file '{}' to table '{}'", 
+               format_date_time(&self.started),
+               format_date_time(&self.last_updated), self.file_name, self.table_name)?;
         if self.upload_finished && self.indexing_finished {
             write!(f, " is finished uploading and indexing and")?;
         } else if self.upload_finished {
@@ -126,7 +130,7 @@ pub(crate) async fn upload_file(app_state: &AppState, table_name: &str, file_nam
                                 stats: Arc<RwLock<UploadStats>>)
     -> Result<String, Error> {
     let task_handle = {
-        stats.write().await.add_upload(file_name.clone())?
+        stats.write().await.add_upload(file_name.clone(), table_name.to_string())?
     };
     let message = format!("Processing request to upload {file_name}");
     let app_state = app_state.clone();
@@ -168,7 +172,7 @@ async fn try_upload(app_state: AppState, table_name: &str, file_path: PathBuf,
         .wrap_err(format!("Failed to open file {}", file_path.display()))?;
     let mut reader =
         csv::ReaderBuilder::new().trim(csv::Trim::All).from_reader(file);
-    info!("Starting to upload terms from file: {}", file_path.display());
+    info!("Starting to upload terms from file '{}' to table '{table_name}'.", file_path.display());
     let mut n_terms: usize = 0;
     let mut term_buffer: Vec<String> = Vec::new();
     let mut phenotype_buffer: Vec<Option<String>> = Vec::new();

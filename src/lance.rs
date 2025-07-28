@@ -172,14 +172,14 @@ pub(crate) async fn add(app_state: &AppState, table_name: &str, terms: Vec<Strin
             .open_table(table_name)
             .execute()
             .await
-            .wrap_err(format!("Could not open table {}", app_state.table_name))?;
+            .wrap_err(format!("Could not open table {table_name}"))?;
         let schema = batch.schema();
         let iter = vec![Ok(batch)].into_iter();
         let batch_reader = RecordBatchIterator::new(iter, schema);
         table.add(batch_reader)
             .execute()
             .await
-            .wrap_err(format!("Failed to add record to table {}", app_state.table_name))?;
+            .wrap_err(format!("Failed to add record to table {table_name}"))?;
         Ok(embeddings)
     }
 }
@@ -201,7 +201,8 @@ pub(crate) async fn get(
         .wrap_err(format!("Could not query table {}", app_state.table_name))?;
     if let Some(record_batch) = results.next().await {
         let record_batch =
-            record_batch.wrap_err(format!("Failed to retrieve record batch for term '{term}'"))?;
+            record_batch
+                .wrap_err(format!("Failed to retrieve record batch for term '{term}'"))?;
         let embedding_column = record_batch
             .column_by_name("embedding")
             .ok_or_else(|| {

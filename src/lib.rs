@@ -220,7 +220,7 @@ async fn do_upload_file(app_state: &AppState, table_name: String, file_name: Str
     -> Result<String, (StatusCode, String)> {
     info!("Received request to upload file {file_name} to table {table_name}.");
     let stats = app_state.upload_stats.clone();
-    match upload::upload_file(app_state, &app_state.table_name, file_name.clone(), stats).await {
+    match upload::upload_file(app_state, &table_name, file_name.clone(), stats).await {
         Ok(response) => {
             info!("Started uploading file {file_name} to table {table_name}.");
             Ok(response)
