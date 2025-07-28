@@ -239,24 +239,24 @@ pub(crate) struct NearTerm {
     pub distance: f32,
 }
 
-pub(crate) async fn find_nearest_to(app_state: &AppState, term: &str, k: usize)
+pub(crate) async fn find_nearest_to(app_state: &AppState, table_name: &str, term: &str, k: usize)
     -> Result<Vec<NearTerm>, Error> {
     let table = &app_state.lance_connection
-        .open_table(&app_state.table_name)
+        .open_table(table_name)
         .execute()
         .await
-        .wrap_err(format!("Could not open table {}", app_state.table_name))?;
+        .wrap_err(format!("Could not open table {table_name}"))?;
     let embedding = embed::calculate_embedding(app_state, term)
         .wrap_err(format!("Failed to calculate embedding for term '{term}'"))?;
     let mut nearest_batch_stream =
         table.query().nearest_to(embedding)?.limit(k).execute()
         .await
-        .wrap_err(format!("Failed to find nearest neighbors for term '{term}'"))?;
+        .wrap_err(format!("Failed to find nearest neighbors for term '{term}' using table '{table_name}'"))?;
     let mut nearest_terms: Vec<NearTerm> = Vec::new();
     while let Some(batch) = nearest_batch_stream.next().await {
         let batch =
             batch.wrap_err(
-                format!("Failed to retrieve batch for nearest neighbors of term '{term}'")
+                format!("Failed to retrieve batch for nearest neighbors of term '{term}' from table '{table_name}'.")
             )?;
         let terms_array = get_string_column(term, &batch, TERM_COLUMN)?;
         let phenotypes_array = get_string_column(term, &batch, PHENOTYPE_COLUMN)?;

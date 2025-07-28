@@ -19,7 +19,7 @@ use tokio::sync::RwLock;
 use tower_http::cors;
 use tower_http::cors::CorsLayer;
 use crate::embed::{calculate_embedding, get_bert_model, get_device, get_tokenizer, BertModelWrap};
-use crate::lance::TableStats;
+use crate::lance::{NearTerm, TableStats};
 use crate::upload::UploadStats;
 use crate::util::format_date_time;
 
@@ -61,7 +61,8 @@ pub fn run() -> Result<(), Error> {
         let table_router = Router::new()
             .route("/create_table", get(create_table))
             .route("/drop_table", get(drop_table))
-            .route("/upload/{file_name}", get(upload_file_to_table));
+            .route("/upload/{file_name}", get(upload_file_to_table))
+            .route("/nearest/{term}", get(find_nearest_in_table));
         let default_router = Router::new()
             .route("/ping", get(ping))
             .route("/list_tables", get(list_tables))
@@ -178,9 +179,22 @@ async fn get_stored_embedding(
 
 async fn find_nearest(
     State(app_state): State<AppState>, Path(term): Path<String>,
-) -> Result<Json<Vec<lance::NearTerm>>, (StatusCode, String)> {
+) -> Result<Json<Vec<NearTerm>>, (StatusCode, String)> {
     info!("Received request to find nearest terms to: {term}");
-    match lance::find_nearest_to(&app_state, &term, 1000).await {
+    let table_name = app_state.table_name.clone();
+    do_find_nearest(&app_state, table_name, term).await
+}
+
+async fn find_nearest_in_table(
+    State(app_state): State<AppState>, Path((table_name, term)): Path<(String, String)>,
+) -> Result<Json<Vec<NearTerm>>, (StatusCode, String)> {
+    info!("Received request to find nearest terms to '{term}' in table '{table_name}'");
+    do_find_nearest(&app_state, table_name, term).await
+}
+
+async fn do_find_nearest(app_state: &AppState, table_name: String, term: String)
+    -> Result<Json<Vec<NearTerm>>, (StatusCode, String)> {
+    match lance::find_nearest_to(app_state, &table_name, &term, 1000).await {
         Ok(terms) => Ok(Json(terms)),
         Err(e) => {
             info!("Error finding nearest terms to {term}: {e}");
