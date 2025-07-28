@@ -17,11 +17,11 @@ toml = "0.9.2"
 home = "0.5.11"
 log = "0.4.27"
 simplelog = "0.12.2"
-tokio = { version = "1.46.1", features = ["rt-multi-thread"] }
+tokio = { version = "1.47.0", features = ["rt-multi-thread"] }
 candle-core = "0.9.1"
 candle-transformers = "0.9.1"
 candle-nn = "0.9.1"
-tokenizers = "0.21.2"
+tokenizers = "0.21.4"
 serde_json = "1.0.141"
 # Needs to be here to set the "static" feature
 lzma-sys = { version = "0.1.20", features = ["static"] }
